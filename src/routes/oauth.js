@@ -8,11 +8,32 @@ const router = express.Router();
 const STRAVA_CLIENT_ID = process.env.STRAVA_CLIENT_ID;
 const STRAVA_CLIENT_SECRET = process.env.STRAVA_CLIENT_SECRET;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://ambitious-meadow-053230410.7.azurestaticapps.net';
-
-// HARDCODED to correct Vercel URL
 const API_URL = 'https://vitals-auth-izmn.vercel.app';
 const redirectUri = `${API_URL}/api/oauth/strava/callback`;
 
+// POST /api/oauth/strava/authorize - Returns auth URL (uses Bearer token in header)
+router.post('/strava/authorize', requireAuth, async (req, res, next) => {
+  try {
+    if (!STRAVA_CLIENT_ID || !STRAVA_CLIENT_SECRET) {
+      return res.status(500).json({ error: 'Strava OAuth not configured' });
+    }
+
+    const state = Buffer.from(JSON.stringify({ userId: req.user.userId })).toString('base64');
+
+    const authUrl = new URL('https://www.strava.com/oauth/authorize');
+    authUrl.searchParams.set('client_id', STRAVA_CLIENT_ID);
+    authUrl.searchParams.set('redirect_uri', redirectUri);
+    authUrl.searchParams.set('response_type', 'code');
+    authUrl.searchParams.set('scope', 'read,activity:read_all,profile:read_all');
+    authUrl.searchParams.set('state', state);
+
+    res.json({ authUrl: authUrl.toString() });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/oauth/strava/connect - Direct redirect (uses token in query param)
 router.get('/strava/connect', requireAuth, async (req, res, next) => {
   try {
     if (!STRAVA_CLIENT_ID || !STRAVA_CLIENT_SECRET) {
