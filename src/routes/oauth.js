@@ -18,7 +18,7 @@ router.get('/strava/connect', requireAuth, (req, res) => {
     return res.status(500).json({ error: 'Strava integration not configured' });
   }
 
-  const redirectUri = `${API_URL}/api/oauth/strava/callback`;
+  const redirectUri = `https://vitals-auth.vercel.app/api/oauth/strava/callback`;
   const state = Buffer.from(JSON.stringify({ userId: req.user.userId })).toString('base64');
 
   const authUrl = `https://www.strava.com/oauth/authorize?` +
