@@ -14,6 +14,7 @@ const activitiesRoutes = require('./routes/activities');
 const trainingRoutes = require('./routes/training');
 const dashboardRoutes = require('./routes/dashboard');
 const oauthRoutes = require('./routes/oauth');
+const ouraOauthRoutes = require('./routes/oauth.oura');
 const webhookRoutes = require('./routes/webhooks');
 
 function createApp() {
@@ -74,6 +75,7 @@ function createApp() {
   app.use('/api/training', trainingRoutes);
   app.use('/api/dashboard', dashboardRoutes);
   app.use('/api/oauth', oauthRoutes);
+  app.use('/api/oauth', ouraOauthRoutes);
   app.use('/webhooks', webhookRoutes);
 
   // Root route
