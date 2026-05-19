@@ -6,14 +6,24 @@ const JWT_SECRET = process.env.JWT_SECRET;
 
 function requireAuth(req, res, next) {
   try {
+    let token = null;
+
+    // Check Authorization header first
     const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.slice(7);
+    }
+
+    // Fallback: check query parameter (for OAuth redirects)
+    if (!token && req.query.token) {
+      token = req.query.token;
+    }
+
+    if (!token) {
       throw new AuthError('Missing or invalid Authorization header');
     }
 
-    const token = authHeader.slice(7);
     const decoded = jwt.verify(token, JWT_SECRET);
-
     req.user = { userId: decoded.userId, email: decoded.email };
     next();
   } catch (err) {
