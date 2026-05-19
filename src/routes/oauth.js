@@ -22,19 +22,7 @@ function buildStravaAuthUrl(userId) {
   return authUrl.toString();
 }
 
-// POST /api/oauth/strava/authorize - Returns auth URL (uses Bearer token in header)
-router.post('/strava/authorize', requireAuth, async (req, res, next) => {
-  try {
-    if (!STRAVA_CLIENT_ID || !STRAVA_CLIENT_SECRET) {
-      return res.status(500).json({ error: 'Strava OAuth not configured' });
-    }
-    res.json({ authUrl: buildStravaAuthUrl(req.user.userId) });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// GET /api/oauth/strava/connect - Direct redirect (token via query param)
+// GET /api/oauth/strava/connect - Direct redirect with token in query param
 router.get('/strava/connect', requireAuth, async (req, res, next) => {
   try {
     if (!STRAVA_CLIENT_ID || !STRAVA_CLIENT_SECRET) {
@@ -50,14 +38,15 @@ router.get('/strava/callback', async (req, res, next) => {
   try {
     const { code, state } = req.query;
     if (!code || !state) {
-      return res.redirect(`${FRONTEND_URL}/settings?error=strava_cancelled`);
+      // Redirect to HashRouter format: /#/settings?error=...
+      return res.redirect(`${FRONTEND_URL}/#/settings?error=strava_cancelled`);
     }
     let userId;
     try {
       const stateData = JSON.parse(Buffer.from(state, 'base64').toString());
       userId = stateData.userId;
     } catch {
-      return res.redirect(`${FRONTEND_URL}/settings?error=invalid_state`);
+      return res.redirect(`${FRONTEND_URL}/#/settings?error=invalid_state`);
     }
     const tokenRes = await fetch('https://www.strava.com/oauth/token', {
       method: 'POST',
@@ -71,7 +60,7 @@ router.get('/strava/callback', async (req, res, next) => {
     });
     const tokenData = await tokenRes.json();
     if (!tokenData.access_token) {
-      return res.redirect(`${FRONTEND_URL}/settings?error=strava_token_failed`);
+      return res.redirect(`${FRONTEND_URL}/#/settings?error=strava_token_failed`);
     }
     await query(
       `INSERT INTO oauth_connections (user_id, provider, access_token, refresh_token, token_expires_at, scopes, sync_status, connected_at)
@@ -84,10 +73,11 @@ router.get('/strava/callback', async (req, res, next) => {
        new Date(Date.now() + tokenData.expires_in * 1000),
        ['read', 'activity:read_all', 'profile:read_all']]
     );
-    res.redirect(`${FRONTEND_URL}/settings?strava=connected`);
+    // Redirect to HashRouter format: /#/settings?strava=connected
+    res.redirect(`${FRONTEND_URL}/#/settings?strava=connected`);
   } catch (err) {
     logger.error('Strava callback error:', err.message);
-    res.redirect(`${FRONTEND_URL}/settings?error=strava_failed`);
+    res.redirect(`${FRONTEND_URL}/#/settings?error=strava_failed`);
   }
 });
 
@@ -102,7 +92,7 @@ router.post('/strava/disconnect', requireAuth, async (req, res, next) => {
 router.get('/connections', requireAuth, async (req, res, next) => {
   try {
     const { rows } = await query(
-      'SELECT provider, connected_at as "connectedAt", last_sync_at as "lastSyncAt", sync_status as "syncStatus" FROM oauth_connections WHERE user_id = $1',
+      'SELECT provider, connected_at as \"connectedAt\", last_sync_at as \"lastSyncAt\", sync_status as \"syncStatus\" FROM oauth_connections WHERE user_id = $1',
       [req.user.userId]);
     res.json(rows);
   } catch (err) { next(err); }
