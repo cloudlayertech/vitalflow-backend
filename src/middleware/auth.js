@@ -1,6 +1,4 @@
 const jwt = require('jsonwebtoken');
-const { AuthError } = require('../lib/errors');
-const logger = require('../lib/logger');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
@@ -8,19 +6,19 @@ function requireAuth(req, res, next) {
   try {
     let token = null;
 
-    // Check Authorization header first
+    // Check Authorization header
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
       token = authHeader.slice(7);
     }
 
-    // Fallback: check query parameter (for OAuth redirects)
-    if (!token && req.query.token) {
+    // Fallback: check query parameter
+    if (!token && req.query && req.query.token) {
       token = req.query.token;
     }
 
     if (!token) {
-      throw new AuthError('Missing or invalid Authorization header');
+      return res.status(401).json({ error: 'Missing or invalid Authorization header', statusCode: 401 });
     }
 
     const decoded = jwt.verify(token, JWT_SECRET);
@@ -28,12 +26,12 @@ function requireAuth(req, res, next) {
     next();
   } catch (err) {
     if (err.name === 'TokenExpiredError') {
-      return next(new AuthError('Token expired'));
+      return res.status(401).json({ error: 'Token expired', statusCode: 401 });
     }
     if (err.name === 'JsonWebTokenError') {
-      return next(new AuthError('Invalid token'));
+      return res.status(401).json({ error: 'Invalid token', statusCode: 401 });
     }
-    next(err);
+    return res.status(401).json({ error: 'Unauthorized', statusCode: 401 });
   }
 }
 
