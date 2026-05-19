@@ -11,42 +11,36 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'https://ambitious-meadow-05323
 const API_URL = 'https://vitals-auth-izmn.vercel.app';
 const redirectUri = `${API_URL}/api/oauth/strava/callback`;
 
+function buildStravaAuthUrl(userId) {
+  const state = Buffer.from(JSON.stringify({ userId })).toString('base64');
+  const authUrl = new URL('https://www.strava.com/oauth/authorize');
+  authUrl.searchParams.set('client_id', STRAVA_CLIENT_ID);
+  authUrl.searchParams.set('redirect_uri', redirectUri);
+  authUrl.searchParams.set('response_type', 'code');
+  authUrl.searchParams.set('scope', 'read,activity:read_all,profile:read_all');
+  authUrl.searchParams.set('state', state);
+  return authUrl.toString();
+}
+
 // POST /api/oauth/strava/authorize - Returns auth URL (uses Bearer token in header)
 router.post('/strava/authorize', requireAuth, async (req, res, next) => {
   try {
     if (!STRAVA_CLIENT_ID || !STRAVA_CLIENT_SECRET) {
       return res.status(500).json({ error: 'Strava OAuth not configured' });
     }
-
-    const state = Buffer.from(JSON.stringify({ userId: req.user.userId })).toString('base64');
-
-    const authUrl = new URL('https://www.strava.com/oauth/authorize');
-    authUrl.searchParams.set('client_id', STRAVA_CLIENT_ID);
-    authUrl.searchParams.set('redirect_uri', redirectUri);
-    authUrl.searchParams.set('response_type', 'code');
-    authUrl.searchParams.set('scope', 'read,activity:read_all,profile:read_all');
-    authUrl.searchParams.set('state', state);
-
-    res.json({ authUrl: authUrl.toString() });
+    res.json({ authUrl: buildStravaAuthUrl(req.user.userId) });
   } catch (err) {
     next(err);
   }
 });
 
-// GET /api/oauth/strava/connect - Direct redirect (uses token in query param)
+// GET /api/oauth/strava/connect - Direct redirect (token via query param)
 router.get('/strava/connect', requireAuth, async (req, res, next) => {
   try {
     if (!STRAVA_CLIENT_ID || !STRAVA_CLIENT_SECRET) {
       return res.status(500).json({ error: 'Strava OAuth not configured' });
     }
-    const state = Buffer.from(JSON.stringify({ userId: req.user.userId })).toString('base64');
-    const authUrl = new URL('https://www.strava.com/oauth/authorize');
-    authUrl.searchParams.set('client_id', STRAVA_CLIENT_ID);
-    authUrl.searchParams.set('redirect_uri', redirectUri);
-    authUrl.searchParams.set('response_type', 'code');
-    authUrl.searchParams.set('scope', 'read,activity:read_all,profile:read_all');
-    authUrl.searchParams.set('state', state);
-    res.redirect(authUrl.toString());
+    res.redirect(buildStravaAuthUrl(req.user.userId));
   } catch (err) {
     next(err);
   }
