@@ -26,10 +26,8 @@ function errorHandler(err, req, res, next) {
     return res.status(401).json({ error: 'Invalid token' });
   }
 
-  // Unexpected errors - don't leak details in production
-  const message = process.env.NODE_ENV === 'production'
-    ? 'Internal server error'
-    : err.message || 'Internal server error';
+  // Show actual error for debugging
+  const message = err.message || 'Internal server error';
 
   res.status(500).json({ error: message });
 }
