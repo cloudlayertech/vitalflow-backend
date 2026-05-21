@@ -7,7 +7,7 @@ const router = express.Router();
 const OURA_CLIENT_ID = process.env.OURA_CLIENT_ID;
 const OURA_CLIENT_SECRET = process.env.OURA_CLIENT_SECRET;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://ambitious-meadow-053230410.7.azurestaticapps.net';
-const API_URL = 'https://vitals-auth-izmn.vercel.app';
+const API_URL = process.env.API_URL || 'https://vitalflow-api-mbzw.onrender.com';
 const redirectUri = `${API_URL}/api/oauth/oura/callback`;
 
 // GET /api/oauth/oura/callback - Oura OAuth callback (must be BEFORE the /connect route)
@@ -16,11 +16,11 @@ router.get('/oura/callback', async (req, res) => {
     const { code, state, error } = req.query;
 
     if (error) {
-      return res.redirect(`${FRONTEND_URL}/settings?error=oura_${error}`);
+      return res.redirect(`${FRONTEND_URL}/#/settings?error=oura_${error}`);
     }
 
     if (!code || !state) {
-      return res.redirect(`${FRONTEND_URL}/settings?error=oura_missing_params`);
+      return res.redirect(`${FRONTEND_URL}/#/settings?error=oura_missing_params`);
     }
 
     let userId;
@@ -28,7 +28,7 @@ router.get('/oura/callback', async (req, res) => {
       const stateData = JSON.parse(Buffer.from(state, 'base64').toString());
       userId = stateData.userId;
     } catch {
-      return res.redirect(`${FRONTEND_URL}/settings?error=invalid_state`);
+      return res.redirect(`${FRONTEND_URL}/#/settings?error=invalid_state`);
     }
 
     // Exchange code for token
@@ -47,7 +47,7 @@ router.get('/oura/callback', async (req, res) => {
     const tokenData = await tokenRes.json();
 
     if (!tokenData.access_token) {
-      return res.redirect(`${FRONTEND_URL}/settings?error=oura_token_failed`);
+      return res.redirect(`${FRONTEND_URL}/#/settings?error=oura_token_failed`);
     }
 
     // Upsert oauth connection
@@ -72,10 +72,10 @@ router.get('/oura/callback', async (req, res) => {
       ]
     );
 
-    res.redirect(`${FRONTEND_URL}/settings?oura=connected`);
+    res.redirect(`${FRONTEND_URL}/#/settings?oura=connected`);
   } catch (err) {
     logger.error('Oura OAuth callback error:', err.message);
-    res.redirect(`${FRONTEND_URL}/settings?error=oura_failed`);
+    res.redirect(`${FRONTEND_URL}/#/settings?error=oura_failed`);
   }
 });
 
