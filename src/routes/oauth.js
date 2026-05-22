@@ -105,6 +105,7 @@ router.get('/strava/callback', async (req, res) => {
       return res.redirect(FRONTEND_URL + '/#/settings?error=strava_token');
     }
 
+    // Simple UPSERT - only required columns + a few extras
     const athleteId = tokenData.athlete && tokenData.athlete.id ? tokenData.athlete.id.toString() : null;
     const expiresAt = new Date(Date.now() + tokenData.expires_in * 1000).toISOString();
     const refreshToken = tokenData.refresh_token || null;
@@ -201,6 +202,7 @@ router.get('/oura/connect', async (req, res) => {
       '&scope=' + encodeURIComponent('daily heartrate workout tag session spo2') +
       '&state=' + encodeURIComponent(state);
 
+    logger.info('Oura auth URL: ' + authUrl);
     res.redirect(authUrl);
   } catch (err) {
     logger.error('Oura connect error: ' + err.message);
@@ -228,13 +230,18 @@ router.get('/oura/callback', async (req, res) => {
       return res.redirect(FRONTEND_URL + '/#/settings?error=invalid_state');
     }
 
+    logger.info('Oura exchanging code for token. redirectUri=' + ouraRedirectUri + ' codeLength=' + (code ? code.length : 0));
+
     const tokenData = await ouraTokenRequest(code);
 
+    logger.info('Oura token response: ' + JSON.stringify(tokenData).substring(0, 500));
+
     if (!tokenData.access_token) {
-      logger.error('Oura token fail: ' + JSON.stringify(tokenData));
-      return res.redirect(FRONTEND_URL + '/#/settings?error=oura_token');
+      logger.error('Oura token FAILED: ' + JSON.stringify(tokenData));
+      return res.redirect(FRONTEND_URL + '/#/settings?error=oura_token_fail&detail=' + encodeURIComponent(tokenData.error_description || tokenData.error || 'unknown'));
     }
 
+    // Simple UPSERT - only required columns + extras in UPDATE
     const expiresAt = new Date(Date.now() + (tokenData.expires_in || 3600) * 1000).toISOString();
     const refreshToken = tokenData.refresh_token || null;
 
