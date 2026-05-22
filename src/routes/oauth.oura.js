@@ -10,15 +10,27 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'https://ambitious-meadow-05323
 const API_URL = process.env.API_URL || 'https://vitalflow-api-mbzw.onrender.com';
 const redirectUri = `${API_URL}/api/oauth/oura/callback`;
 
-// GET /api/oauth/oura/callback - Oura OAuth callback (must be BEFORE the /connect route)
+// DEBUG: Check Oura config
+router.get('/oura/debug', (req, res) => {
+  res.json({
+    clientIdSet: !!OURA_CLIENT_ID,
+    clientIdLength: OURA_CLIENT_ID ? OURA_CLIENT_ID.length : 0,
+    clientSecretSet: !!OURA_CLIENT_SECRET,
+    clientSecretLength: OURA_CLIENT_SECRET ? OURA_CLIENT_SECRET.length : 0,
+    redirectUri,
+    apiUrl: API_URL,
+  });
+});
+
+// GET /api/oauth/oura/callback
 router.get('/oura/callback', async (req, res) => {
   try {
     const { code, state, error } = req.query;
+    logger.info(`Oura callback: code=${!!code}, state=${!!state}, error=${error || 'none'}`);
 
     if (error) {
       return res.redirect(`${FRONTEND_URL}/#/settings?error=oura_${error}`);
     }
-
     if (!code || !state) {
       return res.redirect(`${FRONTEND_URL}/#/settings?error=oura_missing_params`);
     }
@@ -31,11 +43,12 @@ router.get('/oura/callback', async (req, res) => {
       return res.redirect(`${FRONTEND_URL}/#/settings?error=invalid_state`);
     }
 
-    // Exchange code for token
+    logger.info(`Oura token exchange: userId=${userId}, redirectUri=${redirectUri}`);
+
     const tokenRes = await fetch('https://api.ouraring.com/v2/oauth/token', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
         grant_type: 'authorization_code',
         code,
         redirect_uri: redirectUri,
@@ -45,12 +58,13 @@ router.get('/oura/callback', async (req, res) => {
     });
 
     const tokenData = await tokenRes.json();
+    logger.info(`Oura token response: status=${tokenRes.status}, hasToken=${!!tokenData.access_token}`);
 
     if (!tokenData.access_token) {
+      logger.error('Oura token error:', JSON.stringify(tokenData));
       return res.redirect(`${FRONTEND_URL}/#/settings?error=oura_token_failed`);
     }
 
-    // Upsert oauth connection
     await query(
       `INSERT INTO oauth_connections
        (user_id, provider, access_token, refresh_token, token_expires_at, scopes, sync_status, connected_at)
@@ -74,47 +88,19 @@ router.get('/oura/callback', async (req, res) => {
 
     res.redirect(`${FRONTEND_URL}/#/settings?oura=connected`);
   } catch (err) {
-    logger.error('Oura OAuth callback error:', err.message);
+    logger.error('Oura callback error:', err.message);
     res.redirect(`${FRONTEND_URL}/#/settings?error=oura_failed`);
   }
 });
 
-// GET /api/oauth/oura/connect - Redirect to Oura auth (defined AFTER callback)
+// GET /api/oauth/oura/connect
 router.get('/oura/connect', async (req, res) => {
   try {
     if (!OURA_CLIENT_ID || !OURA_CLIENT_SECRET) {
+      logger.error('Oura not configured: ID=' + !!OURA_CLIENT_ID + ' SECRET=' + !!OURA_CLIENT_SECRET);
       return res.status(500).json({ error: 'Oura OAuth not configured' });
     }
 
-    // Auth via query param (browser redirect can't send headers)
     const token = req.query.token;
     if (!token) {
-      return res.status(401).json({ error: 'Missing token', statusCode: 401 });
-    }
-
-    let userId;
-    try {
-      const jwt = require('jsonwebtoken');
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      userId = decoded.userId;
-    } catch (err) {
-      return res.status(401).json({ error: 'Invalid or expired token', statusCode: 401 });
-    }
-
-    const state = Buffer.from(JSON.stringify({ userId })).toString('base64');
-
-    const authUrl = new URL('https://cloud.ouraring.com/oauth/authorize');
-    authUrl.searchParams.set('client_id', OURA_CLIENT_ID);
-    authUrl.searchParams.set('redirect_uri', redirectUri);
-    authUrl.searchParams.set('response_type', 'code');
-    authUrl.searchParams.set('scope', 'daily heartrate workout tag session spo2');
-    authUrl.searchParams.set('state', state);
-
-    res.redirect(authUrl.toString());
-  } catch (err) {
-    logger.error('Oura connect error:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-module.exports = router;
+      return res.status(
