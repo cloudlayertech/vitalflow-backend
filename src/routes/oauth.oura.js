@@ -103,4 +103,33 @@ router.get('/oura/connect', async (req, res) => {
 
     const token = req.query.token;
     if (!token) {
-      return res.status(
+      return res.status(401).json({ error: 'Missing token', statusCode: 401 });
+    }
+
+    let userId;
+    try {
+      const jwt = require('jsonwebtoken');
+n      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      userId = decoded.userId;
+    } catch (err) {
+      return res.status(401).json({ error: 'Invalid or expired token', statusCode: 401 });
+    }
+
+    const state = Buffer.from(JSON.stringify({ userId })).toString('base64');
+
+    const authUrl = new URL('https://cloud.ouraring.com/oauth/authorize');
+    authUrl.searchParams.set('client_id', OURA_CLIENT_ID);
+    authUrl.searchParams.set('redirect_uri', redirectUri);
+    authUrl.searchParams.set('response_type', 'code');
+    authUrl.searchParams.set('scope', 'daily heartrate workout tag session spo2');
+    authUrl.searchParams.set('state', state);
+
+    logger.info(`Oura redirectUri: ${redirectUri}`);
+    res.redirect(authUrl.toString());
+  } catch (err) {
+    logger.error('Oura connect error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+module.exports = router;
