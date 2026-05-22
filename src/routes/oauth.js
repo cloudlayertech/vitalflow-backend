@@ -5,12 +5,12 @@ const logger = require('../lib/logger');
 
 const router = express.Router();
 
-const OURA_CLIENT_ID = process.env.OURA_CLIENT_ID;
-const OURA_CLIENT_SECRET = process.env.OURA_CLIENT_SECRET;
-const STRAVA_CLIENT_ID = process.env.STRAVA_CLIENT_ID;
-const STRAVA_CLIENT_SECRET = process.env.STRAVA_CLIENT_SECRET;
-const FRONTEND_URL = process.env.FRONTEND_URL || 'https://ambitious-meadow-053230410.7.azurestaticapps.net';
-const API_URL = process.env.API_URL || 'https://vitalflow-api-mbzw.onrender.com';
+const OURA_CLIENT_ID = (process.env.OURA_CLIENT_ID || '').trim();
+const OURA_CLIENT_SECRET = (process.env.OURA_CLIENT_SECRET || '').trim();
+const STRAVA_CLIENT_ID = (process.env.STRAVA_CLIENT_ID || '').trim();
+const STRAVA_CLIENT_SECRET = (process.env.STRAVA_CLIENT_SECRET || '').trim();
+const FRONTEND_URL = (process.env.FRONTEND_URL || 'https://ambitious-meadow-053230410.7.azurestaticapps.net').trim();
+const API_URL = (process.env.API_URL || 'https://vitalflow-api-mbzw.onrender.com').trim();
 const stravaRedirectUri = API_URL + '/api/oauth/strava/callback';
 const ouraRedirectUri = API_URL + '/api/oauth/oura/callback';
 
@@ -64,11 +64,19 @@ function ouraTokenRequest(code) {
 
 router.get('/oura/connect', async (req, res) => {
   try {
-    if (!OURA_CLIENT_ID || !OURA_CLIENT_SECRET) return res.status(500).json({ error: 'Oura not configured' });
+    logger.info('Oura connect: CLIENT_ID set=' + !!OURA_CLIENT_ID + ' length=' + OURA_CLIENT_ID.length + ' first4=' + OURA_CLIENT_ID.substring(0,4));
+    logger.info('Oura connect: CLIENT_SECRET set=' + !!OURA_CLIENT_SECRET + ' length=' + OURA_CLIENT_SECRET.length);
+    logger.info('Oura connect: REDIRECT_URI=' + ouraRedirectUri);
+    if (!OURA_CLIENT_ID || !OURA_CLIENT_SECRET) {
+      logger.error('Oura not configured: missing env vars');
+      return res.status(500).json({ error: 'Oura not configured', clientIdSet: !!OURA_CLIENT_ID, secretSet: !!OURA_CLIENT_SECRET });
+    }
     const token = req.query.token; if (!token) return res.status(401).json({ error: 'Missing token' });
     let userId; try { userId = require('jsonwebtoken').verify(token, process.env.JWT_SECRET).userId; } catch { return res.status(401).json({ error: 'Invalid token' }); }
     const state = Buffer.from(JSON.stringify({ userId })).toString('base64');
-    res.redirect('https://cloud.ouraring.com/oauth/authorize?client_id=' + OURA_CLIENT_ID + '&redirect_uri=' + encodeURIComponent(ouraRedirectUri) + '&response_type=code&state=' + encodeURIComponent(state));
+    const authUrl = 'https://cloud.ouraring.com/oauth/authorize?client_id=' + OURA_CLIENT_ID + '&redirect_uri=' + encodeURIComponent(ouraRedirectUri) + '&response_type=code&state=' + encodeURIComponent(state);
+    logger.info('Oura redirect URL: ' + authUrl);
+    res.redirect(authUrl);
   } catch (err) { logger.error('Oura connect: ' + err.message); res.status(500).json({ error: err.message }); }
 });
 
