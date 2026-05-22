@@ -8,7 +8,7 @@ const router = express.Router();
 const STRAVA_CLIENT_ID = process.env.STRAVA_CLIENT_ID;
 const STRAVA_CLIENT_SECRET = process.env.STRAVA_CLIENT_SECRET;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://ambitious-meadow-053230410.7.azurestaticapps.net';
-const API_URL = 'https://vitals-auth-izmn.vercel.app';
+const API_URL = process.env.API_URL || 'https://vitalflow-api-mbzw.onrender.com';
 const redirectUri = `${API_URL}/api/oauth/strava/callback`;
 
 function buildStravaAuthUrl(userId) {
@@ -22,7 +22,7 @@ function buildStravaAuthUrl(userId) {
   return authUrl.toString();
 }
 
-// GET /api/oauth/strava/connect - Direct redirect with token in query param
+// GET /api/oauth/strava/connect
 router.get('/strava/connect', requireAuth, async (req, res, next) => {
   try {
     if (!STRAVA_CLIENT_ID || !STRAVA_CLIENT_SECRET) {
@@ -38,7 +38,6 @@ router.get('/strava/callback', async (req, res, next) => {
   try {
     const { code, state } = req.query;
     if (!code || !state) {
-      // Redirect to HashRouter format: /#/settings?error=...
       return res.redirect(`${FRONTEND_URL}/#/settings?error=strava_cancelled`);
     }
     let userId;
@@ -48,54 +47,82 @@ router.get('/strava/callback', async (req, res, next) => {
     } catch {
       return res.redirect(`${FRONTEND_URL}/#/settings?error=invalid_state`);
     }
+
+    // Exchange code for token using form-urlencoded (OAuth standard)
     const tokenRes = await fetch('https://www.strava.com/oauth/token', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
         client_id: STRAVA_CLIENT_ID,
         client_secret: STRAVA_CLIENT_SECRET,
         code,
         grant_type: 'authorization_code',
       }),
     });
+
     const tokenData = await tokenRes.json();
+
     if (!tokenData.access_token) {
+      logger.error('Strava token response:', JSON.stringify(tokenData));
       return res.redirect(`${FRONTEND_URL}/#/settings?error=strava_token_failed`);
     }
+
     await query(
-      `INSERT INTO oauth_connections (user_id, provider, access_token, refresh_token, token_expires_at, scopes, sync_status, connected_at)
-       VALUES ($1, 'strava', $2, $3, $4, $5, 'ok', NOW())
-       ON CONFLICT (user_id, provider) DO UPDATE SET
-         access_token = EXCLUDED.access_token, refresh_token = EXCLUDED.refresh_token,
-         token_expires_at = EXCLUDED.token_expires_at, scopes = EXCLUDED.scopes,
-         sync_status = 'ok', last_sync_at = NOW()`,
-      [userId, tokenData.access_token, tokenData.refresh_token,
-       new Date(Date.now() + tokenData.expires_in * 1000),
-       ['read', 'activity:read_all', 'profile:read_all']]
+      `INSERT INTO oauth_connections
+       (user_id, provider, provider_athlete_id, access_token, refresh_token, token_expires_at, scope, sync_status, connected_at)
+       VALUES ($1, 'strava', $2, $3, $4, $5, $6, 'ok', NOW())
+       ON CONFLICT (user_id, provider)
+       DO UPDATE SET
+         provider_athlete_id = EXCLUDED.provider_athlete_id,
+         access_token = EXCLUDED.access_token,
+         refresh_token = EXCLUDED.refresh_token,
+         token_expires_at = EXCLUDED.token_expires_at,
+         scope = EXCLUDED.scope,
+         sync_status = 'ok',
+         connected_at = EXCLUDED.connected_at,
+         last_sync_at = NOW()`,
+      [
+        userId,
+        tokenData.athlete.id.toString(),
+        tokenData.access_token,
+        tokenData.refresh_token,
+        new Date(Date.now() + tokenData.expires_in * 1000),
+        'read,activity:read_all,profile:read_all',
+      ]
     );
-    // Redirect to HashRouter format: /#/settings?strava=connected
     res.redirect(`${FRONTEND_URL}/#/settings?strava=connected`);
   } catch (err) {
-    logger.error('Strava callback error:', err.message);
-    res.redirect(`${FRONTEND_URL}/#/settings?error=strava_failed`);
+    next(err);
   }
 });
 
 router.post('/strava/disconnect', requireAuth, async (req, res, next) => {
   try {
-    await query('DELETE FROM oauth_connections WHERE user_id = $1 AND provider = $2',
-      [req.user.userId, 'strava']);
-    res.json({ disconnected: true });
-  } catch (err) { next(err); }
+    const result = await query(
+      'DELETE FROM oauth_connections WHERE user_id = $1 AND provider = $2 RETURNING id',
+      [req.user.userId, 'strava']
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Strava connection not found' });
+    }
+    res.json({ message: 'Strava account disconnected' });
+  } catch (err) {
+    next(err);
+  }
 });
 
+// GET /api/oauth/connections
 router.get('/connections', requireAuth, async (req, res, next) => {
   try {
-    const { rows } = await query(
-      'SELECT provider, connected_at as \"connectedAt\", last_sync_at as \"lastSyncAt\", sync_status as \"syncStatus\" FROM oauth_connections WHERE user_id = $1',
-      [req.user.userId]);
-    res.json(rows);
-  } catch (err) { next(err); }
+    const result = await query(
+      `SELECT id, provider, provider_athlete_id, scope, connected_at, last_sync_at, sync_status
+       FROM oauth_connections WHERE user_id = $1 ORDER BY provider ASC`,
+      [req.user.userId]
+    );
+    res.json({ connections: result.rows, count: result.rows.length });
+  } catch (err) {
+    next(err);
+  }
 });
 
 module.exports = router;
