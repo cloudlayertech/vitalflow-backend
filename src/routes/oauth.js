@@ -68,9 +68,7 @@ router.get('/oura/connect', async (req, res) => {
     const token = req.query.token; if (!token) return res.status(401).json({ error: 'Missing token' });
     let userId; try { userId = require('jsonwebtoken').verify(token, process.env.JWT_SECRET).userId; } catch { return res.status(401).json({ error: 'Invalid token' }); }
     const state = Buffer.from(JSON.stringify({ userId })).toString('base64');
-    const authUrl = 'https://cloud.ouraring.com/oauth/authorize?client_id=' + OURA_CLIENT_ID + '&redirect_uri=' + encodeURIComponent(ouraRedirectUri) + '&response_type=code&scope=' + encodeURIComponent('daily heartrate workout tag session spo2') + '&state=' + encodeURIComponent(state);
-    logger.info('Oura auth URL: ' + authUrl);
-    res.redirect(authUrl);
+    res.redirect('https://cloud.ouraring.com/oauth/authorize?client_id=' + OURA_CLIENT_ID + '&redirect_uri=' + encodeURIComponent(ouraRedirectUri) + '&response_type=code&scope=' + encodeURIComponent('daily_readiness daily_sleep daily_activity heartrate workout tagging spo2_profile session') + '&state=' + encodeURIComponent(state));
   } catch (err) { logger.error('Oura connect: ' + err.message); res.status(500).json({ error: err.message }); }
 });
 
@@ -84,7 +82,7 @@ router.get('/oura/callback', async (req, res) => {
     const tokenData = await ouraTokenRequest(code);
     logger.info('Oura token response: ' + JSON.stringify(tokenData).substring(0, 500));
     if (!tokenData.access_token) { logger.error('Oura token FAILED: ' + JSON.stringify(tokenData)); return res.redirect(FRONTEND_URL + '/#/settings?error=oura_token_fail&detail=' + encodeURIComponent(tokenData.error_description || tokenData.error || 'unknown')); }
-    await query('INSERT INTO oauth_connections (user_id, provider, access_token) VALUES ($1, $2, $3) ON CONFLICT (user_id, provider) DO UPDATE SET access_token = EXCLUDED.access_token, refresh_token = $4, token_expires_at = $5, scope = $6, sync_status = $7, connected_at = NOW(), last_sync_at = NOW()', [userId, 'oura', tokenData.access_token, tokenData.refresh_token || null, new Date(Date.now() + (tokenData.expires_in || 3600) * 1000).toISOString(), 'daily heartrate workout tag session spo2', 'ok']);
+    await query('INSERT INTO oauth_connections (user_id, provider, access_token) VALUES ($1, $2, $3) ON CONFLICT (user_id, provider) DO UPDATE SET access_token = EXCLUDED.access_token, refresh_token = $4, token_expires_at = $5, scope = $6, sync_status = $7, connected_at = NOW(), last_sync_at = NOW()', [userId, 'oura', tokenData.access_token, tokenData.refresh_token || null, new Date(Date.now() + (tokenData.expires_in || 3600) * 1000).toISOString(), 'daily_readiness daily_sleep daily_activity heartrate workout tagging spo2_profile session', 'ok']);
     res.redirect(FRONTEND_URL + '/#/settings?oura=connected');
   } catch (err) { logger.error('Oura callback: ' + err.message); res.redirect(FRONTEND_URL + '/#/settings?error=oura_failed'); }
 });
