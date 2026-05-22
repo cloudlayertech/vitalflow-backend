@@ -21,7 +21,7 @@ function createApp() {
 
   // Security middleware
   app.use(helmet({
-    contentSecurityPolicy: false, // Allow frontend to load resources
+    contentSecurityPolicy: false,
     crossOriginEmbedderPolicy: false,
   }));
 
@@ -35,10 +35,9 @@ function createApp() {
 
   app.use(cors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (mobile apps, curl, etc.)
       if (!origin) return callback(null, true);
       if (allowedOrigins.includes(origin)) return callback(null, true);
-      callback(null, true); // In production, tighten this
+      callback(null, true);
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
