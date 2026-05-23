@@ -134,11 +134,12 @@ router.get('/oura/connect', (req, res, next) => {
     const redirectUri = `${API_URL}/api/oauth/oura/callback`;
     const state = Buffer.from(JSON.stringify({ userId })).toString('base64');
 
-    const authUrl = 'https://cloud.ouraring.com/oauth/authorize?' +
+    // Oura v2 extended API endpoint
+    const authUrl = 'https://moi.ouraring.com/oauth/v2/ext/oauth-authorize?' +
       `client_id=${OURA_CLIENT_ID}&` +
       `redirect_uri=${encodeURIComponent(redirectUri)}&` +
       'response_type=code&' +
-      'scope=email+daily_readiness+daily_sleep+daily_activity+daily_spo2+heartrate+workout+tag+session&' +
+      'scope=email+personal+daily_readiness+daily_sleep+daily_activity+daily_spo2+heartrate+workout+tag+session+stress+heart_health+ring_configuration&' +
       `state=${encodeURIComponent(state)}`;
 
     res.redirect(authUrl);
