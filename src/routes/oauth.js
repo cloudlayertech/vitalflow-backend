@@ -138,7 +138,7 @@ router.get('/oura/connect', (req, res, next) => {
       `client_id=${OURA_CLIENT_ID}&` +
       `redirect_uri=${encodeURIComponent(redirectUri)}&` +
       'response_type=code&' +
-      'scope=email+daily_readiness+daily_sleep+daily_activity+heartrate+workout+tagging+spo2_profile&' +
+      'scope=email+daily_readiness+daily_sleep+daily_activity+daily_spo2+heartrate+workout+tag+session&' +
       `state=${encodeURIComponent(state)}`;
 
     res.redirect(authUrl);
