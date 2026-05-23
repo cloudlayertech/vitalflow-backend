@@ -79,7 +79,7 @@ router.get('/', async (req, res, next) => {
     const result = await query(sql, params);
 
     res.json({
-      data: result.rows,
+      activities: result.rows,
       count: result.rows.length,
       filters: { start, end, type },
     });
