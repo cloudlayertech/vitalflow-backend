@@ -52,6 +52,9 @@ router.get('/strava/callback', async (req, res, next) => {
     } catch {
       throw new ValidationError('Invalid state parameter');
     }
+    if (!STRAVA_CLIENT_ID || !STRAVA_CLIENT_SECRET) {
+      throw new ValidationError('Strava credentials not configured');
+    }
     const tokenData = await stravaTokenRequest(code);
     await query(
       'INSERT INTO oauth_connections (user_id, provider, provider_athlete_id, access_token, refresh_token, token_expires_at, scope, sync_status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (user_id, provider) DO UPDATE SET provider_athlete_id = EXCLUDED.provider_athlete_id, access_token = EXCLUDED.access_token, refresh_token = EXCLUDED.refresh_token, token_expires_at = EXCLUDED.token_expires_at, scope = EXCLUDED.scope, sync_status = $8, connected_at = NOW(), last_sync_at = NOW()',
@@ -117,6 +120,9 @@ router.get('/oura/callback', async (req, res, next) => {
     } catch {
       throw new ValidationError('Invalid state parameter');
     }
+    if (!OURA_CLIENT_ID || !OURA_CLIENT_SECRET) {
+      throw new ValidationError('Oura credentials not configured');
+    }
     const tokenData = await ouraTokenRequest(code);
     await query(
       'INSERT INTO oauth_connections (user_id, provider, provider_athlete_id, access_token, refresh_token, token_expires_at, scope, sync_status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (user_id, provider) DO UPDATE SET provider_athlete_id = EXCLUDED.provider_athlete_id, access_token = EXCLUDED.access_token, refresh_token = EXCLUDED.refresh_token, token_expires_at = EXCLUDED.token_expires_at, scope = EXCLUDED.scope, sync_status = $8, connected_at = NOW(), last_sync_at = NOW()',
@@ -164,9 +170,14 @@ function ouraTokenRequest(code) {
       response.on('end', () => {
         try {
           const parsed = JSON.parse(data);
-          if (parsed.errors || parsed.error) reject(new Error(parsed.error_description || parsed.error));
-          else resolve(parsed);
-        } catch { reject(new Error('Invalid response from Oura')); }
+          if (parsed.errors || parsed.error_description || parsed.error) {
+            reject(new Error(parsed.error_description || parsed.error || 'Oura token exchange failed'));
+          } else {
+            resolve(parsed);
+          }
+        } catch {
+          reject(new Error('Invalid response from Oura'));
+        }
       });
     });
     request.on('error', (err) => reject(err));
@@ -185,9 +196,14 @@ function stravaTokenRequest(code) {
       response.on('end', () => {
         try {
           const parsed = JSON.parse(data);
-          if (parsed.errors || parsed.message) reject(new Error(parsed.message));
-          else resolve(parsed);
-        } catch { reject(new Error('Invalid response from Strava')); }
+          if (parsed.errors || parsed.message) {
+            reject(new Error(parsed.message || 'Strava token exchange failed'));
+          } else {
+            resolve(parsed);
+          }
+        } catch {
+          reject(new Error('Invalid response from Strava'));
+        }
       });
     });
     request.on('error', (err) => reject(err));
@@ -306,24 +322,40 @@ router.post('/oura/sync', requireAuth, async (req, res, next) => {
     const now = new Date().toISOString().split('T')[0];
     const start = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
 
-    const [sleep, readiness, activity] = await Promise.all([
+    const [dailySleep, sleepDetail, readiness, activity] = await Promise.all([
       apiGet('api.ouraring.com', '/v2/usercollection/daily_sleep?start_date=' + start + '&end_date=' + now, { Authorization: 'Bearer ' + accessToken }),
+      apiGet('api.ouraring.com', '/v2/usercollection/sleep?start_date=' + start + '&end_date=' + now, { Authorization: 'Bearer ' + accessToken }),
       apiGet('api.ouraring.com', '/v2/usercollection/daily_readiness?start_date=' + start + '&end_date=' + now, { Authorization: 'Bearer ' + accessToken }),
       apiGet('api.ouraring.com', '/v2/usercollection/daily_activity?start_date=' + start + '&end_date=' + now, { Authorization: 'Bearer ' + accessToken }),
     ]);
 
-    logger.info('Oura sleep: ' + (sleep.data ? sleep.data.length : 'no data'));
+    // Build HRV lookup from detailed sleep data (average_hrv is in ms)
+    const hrvByDay = {};
+    if (sleepDetail && Array.isArray(sleepDetail.data)) {
+      for (const s of sleepDetail.data) {
+        if (s.average_hrv && s.day) {
+          // Keep the highest average_hrv for the day (main sleep vs naps)
+          if (!hrvByDay[s.day] || s.average_hrv > hrvByDay[s.day]) {
+            hrvByDay[s.day] = s.average_hrv;
+          }
+        }
+      }
+    }
+    logger.info('Oura hrvByDay keys: ' + Object.keys(hrvByDay).join(', '));
+    logger.info('Oura dailySleep: ' + (dailySleep.data ? dailySleep.data.length : 'no data'));
+    logger.info('Oura sleepDetail: ' + (sleepDetail.data ? sleepDetail.data.length : 'no data'));
     logger.info('Oura readiness: ' + (readiness.data ? readiness.data.length : 'no data'));
     logger.info('Oura activity: ' + (activity.data ? activity.data.length : 'no data'));
 
     let imported = 0;
-    if (sleep && Array.isArray(sleep.data)) {
-      for (const d of sleep.data) {
+    if (dailySleep && Array.isArray(dailySleep.data)) {
+      for (const d of dailySleep.data) {
         await query('INSERT INTO health_data (user_id, provider, date, metric_type, value, raw_data, created_at) VALUES ($1, $2, $3, $4, $5, $6, NOW()) ON CONFLICT (user_id, provider, date, metric_type) DO UPDATE SET value = EXCLUDED.value, raw_data = EXCLUDED.raw_data, updated_at = NOW()', [req.user.userId, 'oura', d.day, 'sleep_total', d.total_sleep_duration || 0, JSON.stringify(d)]);
         await query('INSERT INTO health_data (user_id, provider, date, metric_type, value, raw_data, created_at) VALUES ($1, $2, $3, $4, $5, $6, NOW()) ON CONFLICT (user_id, provider, date, metric_type) DO UPDATE SET value = EXCLUDED.value, raw_data = EXCLUDED.raw_data, updated_at = NOW()', [req.user.userId, 'oura', d.day, 'sleep_score', d.score || 0, JSON.stringify(d)]);
-        // average_hrv is the actual HRV in ms from sleep data
-        if (d.average_hrv) {
-          await query('INSERT INTO health_data (user_id, provider, date, metric_type, value, raw_data, created_at) VALUES ($1, $2, $3, $4, $5, $6, NOW()) ON CONFLICT (user_id, provider, date, metric_type) DO UPDATE SET value = EXCLUDED.value, raw_data = EXCLUDED.raw_data, updated_at = NOW()', [req.user.userId, 'oura', d.day, 'hrv', d.average_hrv, JSON.stringify(d)]);
+        // Use average_hrv from detailed sleep data (actual HRV in ms)
+        const hrvValue = hrvByDay[d.day];
+        if (hrvValue) {
+          await query('INSERT INTO health_data (user_id, provider, date, metric_type, value, raw_data, created_at) VALUES ($1, $2, $3, $4, $5, $6, NOW()) ON CONFLICT (user_id, provider, date, metric_type) DO UPDATE SET value = EXCLUDED.value, raw_data = EXCLUDED.raw_data, updated_at = NOW()', [req.user.userId, 'oura', d.day, 'hrv', hrvValue, JSON.stringify({ source: 'sleep_detail', average_hrv: hrvValue })]);
           imported += 1;
         }
         imported += 2;
@@ -343,13 +375,73 @@ router.post('/oura/sync', requireAuth, async (req, res, next) => {
     }
 
     await query('UPDATE oauth_connections SET last_sync_at = NOW(), sync_status = $1 WHERE user_id = $2 AND provider = $3', ['ok', req.user.userId, 'oura']);
-    res.json({ imported, data: { sleep: sleep.data?.length || 0, readiness: readiness.data?.length || 0, activity: activity.data?.length || 0 } });
+    res.json({ imported, data: { sleep: dailySleep.data?.length || 0, readiness: readiness.data?.length || 0, activity: activity.data?.length || 0 } });
   } catch (err) { logger.error('Oura sync: ' + err.message); next(err); }
 });
 
+// GET /api/oauth/debug - check token status
 router.get('/debug', requireAuth, async (req, res) => {
   const conns = await query('SELECT provider, scope, sync_status, last_sync_at FROM oauth_connections WHERE user_id = $1', [req.user.userId]);
   res.json({ userId: req.user.userId, connections: conns.rows });
+});
+
+// GET /api/oauth/oura/debug - test Oura API and show raw responses
+router.get('/oura/debug', requireAuth, async (req, res) => {
+  try {
+    const conn = await query('SELECT access_token FROM oauth_connections WHERE user_id = $1 AND provider = $2', [req.user.userId, 'oura']);
+    if (conn.rows.length === 0) return res.status(404).json({ error: 'Oura not connected' });
+    const accessToken = conn.rows[0].access_token;
+    const now = new Date().toISOString().split('T')[0];
+    const start = new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0];
+
+    const [dailySleep, sleepDetail, readiness] = await Promise.all([
+      apiGet('api.ouraring.com', '/v2/usercollection/daily_sleep?start_date=' + start + '&end_date=' + now, { Authorization: 'Bearer ' + accessToken }),
+      apiGet('api.ouraring.com', '/v2/usercollection/sleep?start_date=' + start + '&end_date=' + now, { Authorization: 'Bearer ' + accessToken }),
+      apiGet('api.ouraring.com', '/v2/usercollection/daily_readiness?start_date=' + start + '&end_date=' + now, { Authorization: 'Bearer ' + accessToken }),
+    ]);
+
+    const hrvSamples = [];
+    if (sleepDetail.data) {
+      for (const s of sleepDetail.data.slice(0, 3)) {
+        hrvSamples.push({ day: s.day, average_hrv: s.average_hrv, has_hrv_object: !!s.hrv });
+      }
+    }
+
+    res.json({
+      dailySleep_count: dailySleep.data?.length || 0,
+      sleepDetail_count: sleepDetail.data?.length || 0,
+      readiness_count: readiness.data?.length || 0,
+      hrv_samples: hrvSamples,
+      first_daily_sleep: dailySleep.data?.[0] || null,
+      first_sleep_detail: sleepDetail.data?.[0] ? { day: sleepDetail.data[0].day, average_hrv: sleepDetail.data[0].average_hrv, average_heart_rate: sleepDetail.data[0].average_heart_rate } : null,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/oauth/strava/debug - test Strava API and show raw response
+router.get('/strava/debug', requireAuth, async (req, res) => {
+  try {
+    const conn = await query('SELECT access_token, refresh_token, token_expires_at, scope FROM oauth_connections WHERE user_id = $1 AND provider = $2', [req.user.userId, 'strava']);
+    if (conn.rows.length === 0) return res.status(404).json({ error: 'Strava not connected' });
+    const row = conn.rows[0];
+
+    const isExpired = row.token_expires_at ? new Date(row.token_expires_at) < new Date() : true;
+
+    const athlete = await apiGet('www.strava.com', '/api/v3/athlete', { Authorization: 'Bearer ' + row.access_token });
+    const activities = await apiGet('www.strava.com', '/api/v3/athlete/activities?per_page=1', { Authorization: 'Bearer ' + row.access_token });
+
+    res.json({
+      token_expired: isExpired,
+      token_expires_at: row.token_expires_at,
+      scope: row.scope,
+      athlete: athlete.id ? { id: athlete.id, firstname: athlete.firstname, lastname: athlete.lastname } : { error: athlete.message || 'unknown' },
+      activities_test: Array.isArray(activities) ? { count: activities.length, first: activities[0]?.name || null } : { error: activities.message || activities }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 module.exports = router;
