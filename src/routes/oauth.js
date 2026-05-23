@@ -397,7 +397,7 @@ router.post('/strava/sync', requireAuth, async (req, res, next) => {
       const a = activities[i];
       await query(
         'INSERT INTO activities (user_id, external_id, provider, name, type, ' +
-        'start_date, duration_seconds, distance_meters, training_load, calories, raw_data, created_at) ' +
+        'start_date, duration_seconds, distance_meters, training_load, calories, created_at) ' +
         'VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW()) ' +
         'ON CONFLICT (user_id, external_id) DO UPDATE SET ' +
         'name = EXCLUDED.name, type = EXCLUDED.type, ' +
@@ -411,7 +411,7 @@ router.post('/strava/sync', requireAuth, async (req, res, next) => {
           Math.round(a.distance || 0),
           Math.round(a.suffer_score || 0),
           Math.round(a.calories || 0),
-          JSON.stringify(a),
+          
         ]
       );
       imported++;
@@ -478,28 +478,28 @@ router.post('/oura/sync', requireAuth, async (req, res, next) => {
         const d = dailySleep.data[i];
         // Sleep total
         await query(
-          'INSERT INTO health_data (user_id, provider, date, metric_type, value, raw_data, created_at) ' +
+          'INSERT INTO health_data (user_id, provider, date, metric_type, value, created_at) ' +
           'VALUES ($1, $2, $3, $4, $5, $6, NOW()) ' +
           'ON CONFLICT (user_id, provider, date, metric_type) DO UPDATE SET ' +
-          'value = EXCLUDED.value, raw_data = EXCLUDED.raw_data, updated_at = NOW()',
+          'value = EXCLUDED.value, updated_at = NOW()',
           [req.user.userId, 'oura', d.day, 'sleep_total', d.total_sleep_duration || 0, JSON.stringify(d)]
         );
         // Sleep score
         await query(
-          'INSERT INTO health_data (user_id, provider, date, metric_type, value, raw_data, created_at) ' +
+          'INSERT INTO health_data (user_id, provider, date, metric_type, value, created_at) ' +
           'VALUES ($1, $2, $3, $4, $5, $6, NOW()) ' +
           'ON CONFLICT (user_id, provider, date, metric_type) DO UPDATE SET ' +
-          'value = EXCLUDED.value, raw_data = EXCLUDED.raw_data, updated_at = NOW()',
+          'value = EXCLUDED.value, updated_at = NOW()',
           [req.user.userId, 'oura', d.day, 'sleep_score', d.score || 0, JSON.stringify(d)]
         );
         // HRV from detailed sleep data (actual HRV in ms)
         const hrvValue = hrvByDay[d.day];
         if (hrvValue) {
           await query(
-            'INSERT INTO health_data (user_id, provider, date, metric_type, value, raw_data, created_at) ' +
+            'INSERT INTO health_data (user_id, provider, date, metric_type, value, created_at) ' +
             'VALUES ($1, $2, $3, $4, $5, $6, NOW()) ' +
             'ON CONFLICT (user_id, provider, date, metric_type) DO UPDATE SET ' +
-            'value = EXCLUDED.value, raw_data = EXCLUDED.raw_data, updated_at = NOW()',
+            'value = EXCLUDED.value, updated_at = NOW()',
             [req.user.userId, 'oura', d.day, 'hrv', hrvValue,
               JSON.stringify({ source: 'sleep_detail', average_hrv: hrvValue })]
           );
@@ -512,10 +512,10 @@ router.post('/oura/sync', requireAuth, async (req, res, next) => {
       for (let i = 0; i < readiness.data.length; i++) {
         const d = readiness.data[i];
         await query(
-          'INSERT INTO health_data (user_id, provider, date, metric_type, value, raw_data, created_at) ' +
+          'INSERT INTO health_data (user_id, provider, date, metric_type, value, created_at) ' +
           'VALUES ($1, $2, $3, $4, $5, $6, NOW()) ' +
           'ON CONFLICT (user_id, provider, date, metric_type) DO UPDATE SET ' +
-          'value = EXCLUDED.value, raw_data = EXCLUDED.raw_data, updated_at = NOW()',
+          'value = EXCLUDED.value, updated_at = NOW()',
           [req.user.userId, 'oura', d.day, 'readiness_score', d.score || 0, JSON.stringify(d)]
         );
         imported++;
@@ -525,10 +525,10 @@ router.post('/oura/sync', requireAuth, async (req, res, next) => {
       for (let i = 0; i < activity.data.length; i++) {
         const d = activity.data[i];
         await query(
-          'INSERT INTO health_data (user_id, provider, date, metric_type, value, raw_data, created_at) ' +
+          'INSERT INTO health_data (user_id, provider, date, metric_type, value, created_at) ' +
           'VALUES ($1, $2, $3, $4, $5, $6, NOW()) ' +
           'ON CONFLICT (user_id, provider, date, metric_type) DO UPDATE SET ' +
-          'value = EXCLUDED.value, raw_data = EXCLUDED.raw_data, updated_at = NOW()',
+          'value = EXCLUDED.value, updated_at = NOW()',
           [req.user.userId, 'oura', d.day, 'steps', d.steps || 0, JSON.stringify(d)]
         );
         imported++;
