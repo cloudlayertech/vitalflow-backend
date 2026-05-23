@@ -398,22 +398,23 @@ router.post('/strava/sync', requireAuth, async (req, res, next) => {
       await query(
         'INSERT INTO activities (user_id, external_id, provider, name, type, ' +
         'start_date, duration_seconds, distance_meters, training_load, calories, created_at) ' +
-        'VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW()) ' +
+        'VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW()) ' +
         'ON CONFLICT (user_id, external_id) DO UPDATE SET ' +
         'name = EXCLUDED.name, type = EXCLUDED.type, ' +
         'start_date = EXCLUDED.start_date, duration_seconds = EXCLUDED.duration_seconds, ' +
         'distance_meters = EXCLUDED.distance_meters, ' +
         'training_load = EXCLUDED.training_load, calories = EXCLUDED.calories, ' +
-        'raw_data = EXCLUDED.raw_data, updated_at = NOW()',
+        'updated_at = NOW()',
         [
           req.user.userId, String(a.id), 'strava', a.name, a.type,
           new Date(a.start_date), a.elapsed_time,
           Math.round(a.distance || 0),
           Math.round(a.suffer_score || 0),
           Math.round(a.calories || 0),
-          
         ]
       );
+      imported++;
+    }
       imported++;
     }
 
