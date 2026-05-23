@@ -1,28 +1,33 @@
 const express = require('express');
 const { query } = require('../config/database');
+const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
+router.use(requireAuth);
 
 // GET /api/dashboard/overview
 router.get('/overview', async (req, res, next) => {
   try {
-    // Get today's daily summary
-    const todayResult = await query(
-      `SELECT 
-        date,
-        steps,
-        calories_burned,
-        active_minutes,
-        sleep_score,
-        readiness_score,
-        resting_hr,
-        hrv_score,
-        wellness_score,
-        weight_kg,
-        hydration_percent
-      FROM daily_summaries
-      WHERE date = CURRENT_DATE`
-    );
+    const userId = req.user ? req.user.userId : null;
+
+    // Get latest Oura health data (sleep, readiness, hrv)
+    const healthResult = await query(
+      `SELECT metric_type, value, date
+       FROM health_data
+       WHERE ${userId ? 'user_id = $1 AND' : ''} date >= CURRENT_DATE - INTERVAL '7 days'
+       ORDER BY date DESC`
+    , userId ? [userId] : []);
+
+    // Build aggregated KPIs from health_data
+    const kpis = { sleepScore: null, sleepTotal: null, hrv: null, readinessScore: null, steps: null, calories: null };
+    for (const row of healthResult.rows) {
+      if (row.metric_type === 'sleep_score' && !kpis.sleepScore) kpis.sleepScore = Math.round(row.value);
+      if (row.metric_type === 'sleep_total' && !kpis.sleepTotal) kpis.sleepTotal = Math.round(row.value / 60) + 'h ' + Math.round(row.value % 60) + 'm';
+      if (row.metric_type === 'hrv' && !kpis.hrv) kpis.hrv = Math.round(row.value);
+      if (row.metric_type === 'readiness_score' && !kpis.readinessScore) kpis.readinessScore = Math.round(row.value);
+      if (row.metric_type === 'steps' && !kpis.steps) kpis.steps = Math.round(row.value);
+      if (row.metric_type === 'calories' && !kpis.calories) kpis.calories = Math.round(row.value);
+    }
 
     // Get this week's activity totals
     const weekResult = await query(
@@ -34,29 +39,27 @@ router.get('/overview', async (req, res, next) => {
         COALESCE(SUM(elevation_gain_meters), 0) as total_elevation_m,
         COALESCE(SUM(training_load), 0) as total_training_load
       FROM activities
-      WHERE start_date >= CURRENT_DATE - INTERVAL '7 days'`
-    );
+      WHERE ${userId ? 'user_id = $1 AND' : ''} start_date >= CURRENT_DATE - INTERVAL '7 days'`
+    , userId ? [userId] : []);
 
-    // Get latest training metrics
-    const trainingResult = await query(
-      `SELECT ctl, atl, tsb, weekly_tss
-      FROM training_metrics
-      WHERE date = CURRENT_DATE`
-    );
+    // Weekly load from activities
+    const weeklyLoad = Math.round(weekResult.rows[0]?.total_training_load || 0);
 
-    // Get active alerts count
-    const alertsResult = await query(
-      `SELECT COUNT(*) as active_alerts
-      FROM alerts
-      WHERE dismissed_at IS NULL
-      AND (expires_at IS NULL OR expires_at > NOW())`
+    // Count active connections
+    const connResult = await query(
+      `SELECT provider FROM oauth_connections WHERE ${userId ? 'user_id = $1' : 'TRUE'}`,
+      userId ? [userId] : []
     );
 
     res.json({
-      today: todayResult.rows[0] || null,
+      sleepScore: kpis.sleepScore,
+      hrv: kpis.hrv,
+      readinessScore: kpis.readinessScore,
+      weeklyLoad: weeklyLoad || weekResult.rows[0]?.activity_count * 50,
+      steps: kpis.steps,
+      calories: kpis.calories,
       thisWeek: weekResult.rows[0] || null,
-      fitness: trainingResult.rows[0] || null,
-      activeAlerts: parseInt(alertsResult.rows[0]?.active_alerts || '0', 10),
+      connections: connResult.rows.map(r => r.provider),
       generatedAt: new Date().toISOString(),
     });
   } catch (err) {
